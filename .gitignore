@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Compiled binaries
+route_engine
+*.o
+
+# Output files
+output/
