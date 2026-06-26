@@ -25,16 +25,6 @@ This project uses the **Haversine formula** as the heuristic, which computes the
 **Space Complexity:** `O(V)`  
 **Optimality:** Guaranteed when the heuristic is admissible  
 
-**Haversine formula** (Earth radius R ≈ 6,371 km):
-
-$$
-a = \sin^2\!\left(\frac{\Delta\phi}{2}\right) + \cos\phi_1 \cdot \cos\phi_2 \cdot \sin^2\!\left(\frac{\Delta\lambda}{2}\right)
-$$
-
-$$
-d = 2R \cdot \arctan2\!\left(\sqrt{a},\, \sqrt{1-a}\right)
-$$
-
 ---
 
 ### 3. Breadth-First Search (BFS)
