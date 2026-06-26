@@ -1,66 +1,641 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Road Network Pathfinder</title>
+  <meta name="description" content="Interactive road network pathfinder visualising Dijkstra, A*, and BFS algorithms on real OpenStreetMap data."/>
+
+  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+
   <style>
-    #map { height: 600px; }
-    #info { padding: 10px; font-family: monospace; font-size: 16px; background-color: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+    /* ── Reset & base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #21262d;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --muted:     #8b949e;
+
+      --dijkstra:  #3b82f6;   /* blue  */
+      --astar:     #10b981;   /* emerald */
+      --bfs:       #f59e0b;   /* amber */
+
+      --dijkstra-bg: rgba(59, 130, 246, 0.12);
+      --astar-bg:    rgba(16, 185, 129, 0.12);
+      --bfs-bg:      rgba(245, 158, 11, 0.12);
+
+      --radius:  10px;
+      --shadow:  0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    html, body {
+      height: 100%;
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow: hidden;
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────── */
+    #app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+    }
+
+    /* ── Top bar ──────────────────────────────────────────────────── */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 12px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      z-index: 1000;
+    }
+
+    #topbar h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      color: var(--text);
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #topbar h1 .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--astar);
+      box-shadow: 0 0 8px var(--astar);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+
+    /* ── Algorithm tabs ───────────────────────────────────────────── */
+    #algo-tabs {
+      display: flex;
+      gap: 6px;
+      background: var(--bg);
+      border-radius: var(--radius);
+      padding: 4px;
+      border: 1px solid var(--border);
+    }
+
+    .tab {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 14px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      border: 1px solid transparent;
+      background: transparent;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .tab:hover { color: var(--text); background: var(--surface2); }
+
+    .tab .indicator {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: box-shadow 0.2s;
+    }
+
+    .tab[data-algo="dijkstra"] .indicator { background: var(--dijkstra); }
+    .tab[data-algo="astar"]    .indicator { background: var(--astar);    }
+    .tab[data-algo="bfs"]      .indicator { background: var(--bfs);      }
+    .tab[data-algo="all"]      .indicator { background: linear-gradient(135deg, var(--dijkstra), var(--astar)); }
+
+    .tab.active { color: var(--text); border-color: var(--border); }
+    .tab[data-algo="dijkstra"].active { background: var(--dijkstra-bg); border-color: var(--dijkstra); }
+    .tab[data-algo="astar"].active    { background: var(--astar-bg);    border-color: var(--astar);    }
+    .tab[data-algo="bfs"].active      { background: var(--bfs-bg);      border-color: var(--bfs);      }
+    .tab[data-algo="all"].active      { background: rgba(255,255,255,0.05); border-color: var(--border); }
+
+    .tab[data-algo="dijkstra"].active .indicator { box-shadow: 0 0 8px var(--dijkstra); }
+    .tab[data-algo="astar"].active    .indicator { box-shadow: 0 0 8px var(--astar);    }
+    .tab[data-algo="bfs"].active      .indicator { box-shadow: 0 0 8px var(--bfs);      }
+
+    /* ── Stats chips ──────────────────────────────────────────────── */
+    #stats-bar {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+      flex-wrap: wrap;
+    }
+
+    .stat-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      transition: all 0.3s ease;
+    }
+
+    .stat-chip.loaded { color: var(--text); }
+    .stat-chip .chip-dot { width: 6px; height: 6px; border-radius: 50%; }
+
+    /* ── Map wrapper ──────────────────────────────────────────────── */
+    #map-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+      background: #0d1117;
+    }
+
+    /* ── Floating legend ──────────────────────────────────────────── */
+    #legend {
+      position: absolute;
+      bottom: 24px;
+      left: 16px;
+      z-index: 900;
+      background: rgba(22, 27, 34, 0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      font-size: 12px;
+      min-width: 220px;
+      box-shadow: var(--shadow);
+      transition: opacity 0.3s;
+    }
+
+    #legend h3 {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .legend-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .legend-row:last-child { border-bottom: none; }
+
+    .legend-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .legend-line {
+      width: 28px;
+      height: 3px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .legend-stat {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+    }
+
+    .legend-stat span {
+      display: block;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    /* ── Loading overlay ──────────────────────────────────────────── */
+    #loading {
+      position: absolute;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(13,17,23,0.7);
+      backdrop-filter: blur(4px);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+
+    #loading.visible { opacity: 1; pointer-events: all; }
+
+    .spinner {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 3px solid var(--border);
+      border-top-color: var(--astar);
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Toast ────────────────────────────────────────────────────── */
+    #toast {
+      position: absolute;
+      bottom: 24px;
+      right: 16px;
+      z-index: 2000;
+      background: rgba(22,27,34,0.95);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 18px;
+      font-size: 13px;
+      color: var(--muted);
+      max-width: 340px;
+      box-shadow: var(--shadow);
+      transform: translateY(20px);
+      opacity: 0;
+      transition: all 0.3s ease;
+      pointer-events: none;
+      backdrop-filter: blur(12px);
+    }
+
+    #toast.show { transform: translateY(0); opacity: 1; }
+    #toast.error { border-color: #f85149; color: #f85149; }
+    #toast.success { border-color: var(--astar); color: var(--astar); }
+
+    /* ── Leaflet dark override ────────────────────────────────────── */
+    .leaflet-container { background: #0d1117 !important; }
+    .leaflet-control-attribution {
+      background: rgba(22,27,34,0.8) !important;
+      color: var(--muted) !important;
+      font-size: 10px !important;
+    }
+    .leaflet-control-attribution a { color: var(--muted) !important; }
+    .leaflet-control-zoom a {
+      background: var(--surface) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
+    .leaflet-control-zoom a:hover { background: var(--surface2) !important; }
   </style>
 </head>
+
 <body>
-  <div id="info">Loading path...</div>
-  <div id="map"></div>
+<div id="app">
 
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script>
-    const map = L.map('map');
+  <!-- ── Top bar ─────────────────────────────────────────────────── -->
+  <div id="topbar">
+    <h1><span class="dot"></span> Road Network Pathfinder</h1>
 
-    L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {attribution: '© OpenStreetMap'}
-    ).addTo(map);
+    <div id="algo-tabs">
+      <div class="tab active" data-algo="dijkstra" id="tab-dijkstra">
+        <span class="indicator"></span> Dijkstra
+      </div>
+      <div class="tab" data-algo="astar" id="tab-astar">
+        <span class="indicator"></span> A*
+      </div>
+      <div class="tab" data-algo="bfs" id="tab-bfs">
+        <span class="indicator"></span> BFS
+      </div>
+      <div class="tab" data-algo="all" id="tab-all">
+        <span class="indicator"></span> Compare All
+      </div>
+    </div>
 
-    fetch('output/path_output.json')
-      .then(r => r.json())
-      .then(data => {
-        // draw path
-        const line = L.polyline(data.path, {
-          color: 'blue',
-          weight: 4,
-          opacity: 0.8
-        }).addTo(map);
+    <div id="stats-bar">
+      <div class="stat-chip" id="chip-dist">
+        <span class="chip-dot" style="background:var(--muted)"></span>
+        <span id="chip-dist-val">— km</span>
+      </div>
+      <div class="stat-chip" id="chip-nodes">
+        <span class="chip-dot" style="background:var(--muted)"></span>
+        <span id="chip-nodes-val">— nodes</span>
+      </div>
+    </div>
+  </div>
 
-        // source marker (green)
-        L.circleMarker(data.path[0], {
-          radius: 8,
-          color: 'green',
-          fillOpacity: 1
-        }).addTo(map)
-          .bindPopup('Source').openPopup();
+  <!-- ── Map area ────────────────────────────────────────────────── -->
+  <div id="map-wrap">
+    <div id="map"></div>
 
-        // destination marker (red)
-        const last = data.path[data.path.length - 1];
-        L.circleMarker(last, {
-          radius: 8,
-          color: 'red',
-          fillOpacity: 1
-        }).addTo(map)
-          .bindPopup('Destination');
+    <!-- Floating legend -->
+    <div id="legend">
+      <h3>Path Legend</h3>
+      <div class="legend-row" id="leg-dijkstra">
+        <div class="legend-label">
+          <div class="legend-line" style="background:var(--dijkstra)"></div>
+          Dijkstra
+        </div>
+        <div class="legend-stat">
+          dist <span id="leg-dijkstra-dist">—</span>
+          nodes <span id="leg-dijkstra-nodes">—</span>
+        </div>
+      </div>
+      <div class="legend-row" id="leg-astar">
+        <div class="legend-label">
+          <div class="legend-line" style="background:var(--astar)"></div>
+          A*
+        </div>
+        <div class="legend-stat">
+          dist <span id="leg-astar-dist">—</span>
+          nodes <span id="leg-astar-nodes">—</span>
+        </div>
+      </div>
+      <div class="legend-row" id="leg-bfs">
+        <div class="legend-label">
+          <div class="legend-line" style="background:var(--bfs)"></div>
+          BFS
+        </div>
+        <div class="legend-stat">
+          dist <span id="leg-bfs-dist">—</span>
+          nodes <span id="leg-bfs-nodes">—</span>
+        </div>
+      </div>
+    </div>
 
-        // fit map to path
-        map.fitBounds(line.getBounds());
+    <!-- Loading spinner -->
+    <div id="loading"><div class="spinner"></div></div>
 
-        // show info
-        document.getElementById('info').innerHTML =
-          'Algorithm: ' + data.algo +
-          ' | Distance: ' + data.dist_km.toFixed(2) + ' km';
-      })
-      .catch(err => {
-        console.error(err);
-        document.getElementById('info').innerHTML =
-          'Error loading path data. Please run a query first, or make sure you are using a local web server (like python -m http.server) to avoid browser CORS restrictions when loading local JSON.';
-      });
-  </script>
+    <!-- Toast notification -->
+    <div id="toast"></div>
+  </div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+// ── Config ──────────────────────────────────────────────────────────
+const ALGO_CONFIG = {
+  dijkstra: {
+    color:   getComputedStyle(document.documentElement).getPropertyValue('--dijkstra').trim() || '#3b82f6',
+    file:    'output/dijkstra_output.json',
+    weight:  5,
+    opacity: 0.85,
+    dash:    null,
+    label:   'Dijkstra',
+  },
+  astar: {
+    color:   getComputedStyle(document.documentElement).getPropertyValue('--astar').trim() || '#10b981',
+    file:    'output/astar_output.json',
+    weight:  5,
+    opacity: 0.85,
+    dash:    null,
+    label:   'A*',
+  },
+  bfs: {
+    color:   getComputedStyle(document.documentElement).getPropertyValue('--bfs').trim() || '#f59e0b',
+    file:    'output/bfs_output.json',
+    weight:  4,
+    opacity: 0.7,
+    dash:    '8 6',         // dashed to distinguish BFS (no weights)
+    label:   'BFS',
+  },
+};
+
+// Resolve CSS variable colours properly
+const cssVars = { dijkstra: '#3b82f6', astar: '#10b981', bfs: '#f59e0b' };
+Object.keys(ALGO_CONFIG).forEach(k => { ALGO_CONFIG[k].color = cssVars[k]; });
+
+// ── Map init ─────────────────────────────────────────────────────────
+const map = L.map('map', { zoomControl: true });
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© <a href="https://www.openstreetmap.org">OpenStreetMap</a>',
+  className: 'osm-tiles',
+}).addTo(map);
+
+// ── State ─────────────────────────────────────────────────────────────
+const cache   = {};          // algo → fetched JSON data
+const layers  = {};          // algo → { line, srcMarker, dstMarker }
+let   current = 'dijkstra';  // active tab
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function showLoading(v) {
+  document.getElementById('loading').classList.toggle('visible', v);
+}
+
+function showToast(msg, type = 'info', duration = 4000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  setTimeout(() => { el.className = ''; }, duration);
+}
+
+function fmt(km)    { return km != null    ? km.toFixed(2) + ' km' : '—'; }
+function fmtN(n)    { return n  != null    ? n.toLocaleString()     : '—'; }
+
+function makeMarker(latlng, color, label) {
+  return L.circleMarker(latlng, {
+    radius:      9,
+    color:       '#0d1117',
+    weight:      2,
+    fillColor:   color,
+    fillOpacity: 1,
+  }).bindPopup(`<b style="font-family:Inter,sans-serif">${label}</b>`);
+}
+
+// ── Clear all map layers ───────────────────────────────────────────────
+function clearLayers(algosToClear) {
+  algosToClear.forEach(algo => {
+    const l = layers[algo];
+    if (!l) return;
+    if (l.line)      map.removeLayer(l.line);
+    if (l.srcMarker) map.removeLayer(l.srcMarker);
+    if (l.dstMarker) map.removeLayer(l.dstMarker);
+    delete layers[algo];
+  });
+}
+
+// ── Draw one algorithm path ────────────────────────────────────────────
+function drawAlgo(algo, data) {
+  const cfg = ALGO_CONFIG[algo];
+  const pts  = data.path;
+
+  const line = L.polyline(pts, {
+    color:       cfg.color,
+    weight:      cfg.weight,
+    opacity:     cfg.opacity,
+    dashArray:   cfg.dash,
+    lineJoin:    'round',
+    lineCap:     'round',
+  }).addTo(map);
+
+  // Glow effect via a wider, semi-transparent duplicate
+  const glow = L.polyline(pts, {
+    color:     cfg.color,
+    weight:    cfg.weight + 6,
+    opacity:   0.15,
+    dashArray: cfg.dash,
+  }).addTo(map);
+
+  const src = makeMarker(pts[0],             cfg.color, `Source (${cfg.label})`);
+  const dst = makeMarker(pts[pts.length - 1], cfg.color, `Destination (${cfg.label})`);
+  src.addTo(map);
+  dst.addTo(map);
+
+  layers[algo] = { line, glow, srcMarker: src, dstMarker: dst };
+  return line;
+}
+
+// ── Update legend stats ────────────────────────────────────────────────
+function updateLegend(algo, data) {
+  const distEl  = document.getElementById(`leg-${algo}-dist`);
+  const nodesEl = document.getElementById(`leg-${algo}-nodes`);
+  if (distEl)  distEl.textContent  = fmt(data.dist_km);
+  if (nodesEl) nodesEl.textContent = fmtN(data.nodes_visited);
+}
+
+// ── Update top-bar chips ───────────────────────────────────────────────
+function updateChips(algo, data) {
+  const distChip  = document.getElementById('chip-dist');
+  const nodesChip = document.getElementById('chip-nodes');
+  const dot = cssVars[algo] || '#8b949e';
+
+  document.querySelector('#chip-dist .chip-dot').style.background  = dot;
+  document.querySelector('#chip-nodes .chip-dot').style.background = dot;
+
+  document.getElementById('chip-dist-val').textContent  = fmt(data.dist_km);
+  document.getElementById('chip-nodes-val').textContent =
+    data.nodes_visited != null ? fmtN(data.nodes_visited) + ' nodes' : '— nodes';
+
+  distChip.classList.add('loaded');
+  nodesChip.classList.add('loaded');
+}
+
+function resetChips() {
+  document.getElementById('chip-dist-val').textContent  = '— km';
+  document.getElementById('chip-nodes-val').textContent = '— nodes';
+  ['chip-dist','chip-nodes'].forEach(id => {
+    document.getElementById(id).classList.remove('loaded');
+    document.querySelector(`#${id} .chip-dot`).style.background = '#8b949e';
+  });
+}
+
+// ── Fetch with cache ───────────────────────────────────────────────────
+async function fetchAlgo(algo) {
+  if (cache[algo]) return cache[algo];
+  const res = await fetch(ALGO_CONFIG[algo].file);
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${ALGO_CONFIG[algo].file}`);
+  const data = await res.json();
+  cache[algo] = data;
+  return data;
+}
+
+// ── Load & display a single algorithm ─────────────────────────────────
+async function loadSingle(algo) {
+  showLoading(true);
+  try {
+    clearLayers(['dijkstra', 'astar', 'bfs']);
+    resetChips();
+
+    const data = await fetchAlgo(algo);
+    const line = drawAlgo(algo, data);
+    map.fitBounds(line.getBounds(), { padding: [40, 40] });
+
+    updateLegend(algo, data);
+    updateChips(algo, data);
+    showToast(`${ALGO_CONFIG[algo].label} path loaded — ${fmt(data.dist_km)}`, 'success');
+  } catch (e) {
+    console.error(e);
+    showToast('Could not load path. Run the C++ backend first, then serve with: python -m http.server', 'error', 6000);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ── Load & display all three algorithms ───────────────────────────────
+async function loadAll() {
+  showLoading(true);
+  resetChips();
+  try {
+    clearLayers(['dijkstra', 'astar', 'bfs']);
+
+    const results = await Promise.allSettled(
+      ['dijkstra', 'astar', 'bfs'].map(fetchAlgo)
+    );
+
+    const bounds = [];
+    results.forEach((res, i) => {
+      const algo = ['dijkstra', 'astar', 'bfs'][i];
+      if (res.status === 'fulfilled') {
+        const line = drawAlgo(algo, res.value);
+        bounds.push(...line.getLatLngs());
+        updateLegend(algo, res.value);
+      } else {
+        showToast(`${ALGO_CONFIG[algo].label}: file not found`, 'error', 5000);
+      }
+    });
+
+    if (bounds.length) {
+      map.fitBounds(L.latLngBounds(bounds), { padding: [40, 40] });
+    }
+
+    showToast('All algorithm paths loaded — use the legend to compare', 'success');
+    // Show chip for A* as the "primary" in compare mode
+    if (cache['astar']) updateChips('astar', cache['astar']);
+
+  } catch (e) {
+    console.error(e);
+    showToast('Error loading paths. Serve with: python -m http.server', 'error', 6000);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    const algo = tab.dataset.algo;
+    current    = algo;
+
+    if (algo === 'all') loadAll();
+    else                loadSingle(algo);
+  });
+});
+
+// ── Dark map tiles (CSS filter trick) ─────────────────────────────────
+const style = document.createElement('style');
+style.textContent = `.osm-tiles { filter: brightness(0.45) saturate(0.6) hue-rotate(195deg); }`;
+document.head.appendChild(style);
+
+// ── Initial load ───────────────────────────────────────────────────────
+loadSingle('dijkstra');
+</script>
 </body>
 </html>
