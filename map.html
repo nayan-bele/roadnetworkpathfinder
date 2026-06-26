@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Road Network Pathfinder</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    #map { height: 600px; }
+    #info { padding: 10px; font-family: monospace; font-size: 16px; background-color: #f8f9fa; border-bottom: 1px solid #dee2e6; }
+  </style>
+</head>
+<body>
+  <div id="info">Loading path...</div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map');
+
+    L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {attribution: '© OpenStreetMap'}
+    ).addTo(map);
+
+    fetch('output/path_output.json')
+      .then(r => r.json())
+      .then(data => {
+        // draw path
+        const line = L.polyline(data.path, {
+          color: 'blue',
+          weight: 4,
+          opacity: 0.8
+        }).addTo(map);
+
+        // source marker (green)
+        L.circleMarker(data.path[0], {
+          radius: 8,
+          color: 'green',
+          fillOpacity: 1
+        }).addTo(map)
+          .bindPopup('Source').openPopup();
+
+        // destination marker (red)
+        const last = data.path[data.path.length - 1];
+        L.circleMarker(last, {
+          radius: 8,
+          color: 'red',
+          fillOpacity: 1
+        }).addTo(map)
+          .bindPopup('Destination');
+
+        // fit map to path
+        map.fitBounds(line.getBounds());
+
+        // show info
+        document.getElementById('info').innerHTML =
+          'Algorithm: ' + data.algo +
+          ' | Distance: ' + data.dist_km.toFixed(2) + ' km';
+      })
+      .catch(err => {
+        console.error(err);
+        document.getElementById('info').innerHTML =
+          'Error loading path data. Please run a query first, or make sure you are using a local web server (like python -m http.server) to avoid browser CORS restrictions when loading local JSON.';
+      });
+  </script>
+</body>
+</html>
